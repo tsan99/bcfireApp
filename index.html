@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>BC Wildfire Map (With Circle Markers & logging)</title>
+  <title>BC Wildfire Map (logging for geometry error)</title>
   <meta charset="utf‑8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
@@ -123,9 +123,10 @@
         }
         document.getElementById("status").innerText = `⚠️ ${feats.length} fire(s) matched.`;
         feats.forEach(f => {
+          // Check if geometry exists
           if (!f.geometry?.x || !f.geometry?.y) {
-            console.warn("Invalid fire geometry: ", f);
-            return;
+            console.warn("Invalid fire geometry:", f);
+            return;  // Skip this feature if geometry is invalid
           }
           const lat = f.geometry.y, lon = f.geometry.x;
           const props = f.attributes || {};
