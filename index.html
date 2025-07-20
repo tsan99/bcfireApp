@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>BC Wildfire Map (With Circle Markers & no CORS)</title>
+  <title>BC Wildfire Map (With Circle Markers & logging)</title>
   <meta charset="utf‑8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
@@ -123,9 +123,16 @@
         }
         document.getElementById("status").innerText = `⚠️ ${feats.length} fire(s) matched.`;
         feats.forEach(f => {
-          if (!f.geometry?.x) return;
+          if (!f.geometry?.x || !f.geometry?.y) {
+            console.warn("Invalid fire geometry: ", f);
+            return;
+          }
           const lat = f.geometry.y, lon = f.geometry.x;
           const props = f.attributes || {};
+
+          // Log for debugging
+          console.log("Fire Location:", lat, lon);
+          console.log("Fire Status:", props.FIRE_STATUS || 'Unknown');
           
           // Set fire status to color mapping
           const fireStatus = props.FIRE_STATUS || 'Unknown';
