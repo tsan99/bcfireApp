@@ -39,9 +39,7 @@
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
-  const proxyUrl = 'https://cors-anywhere.herokuapp.com/';
   const pointAPI = 'https://delivery.maps.gov.bc.ca/arcgis/rest/services/whse/bcgw_pub_whse_land_and_natural_resource/MapServer/20';
-  const finalUrl = proxyUrl + pointAPI;
 
   let hasStatusField = false;
   let map, layerGroup, userMarker;
@@ -57,7 +55,7 @@
   }
 
   function checkLayerMetadata() {
-    fetch(finalUrl + "?f=json")
+    fetch(pointAPI + "?f=json")
       .then(res => res.json())
       .then(meta => {
         console.log("Layer metadata:", meta);
@@ -110,7 +108,7 @@
       f: "json"
     });
 
-    fetch(finalUrl + "/query?" + params)
+    fetch(pointAPI + "/query?" + params)
       .then(res => res.json())
       .then(resp => {
         console.log("Query response:", resp);
@@ -137,4 +135,46 @@
           L.circleMarker([lat, lon], {
             radius: 8,
             fillColor: color,
-            color:
+            color: color,
+            weight: 2,
+            opacity: 1,
+            fillOpacity: 0.6
+          }).addTo(layerGroup).bindPopup(`
+            🔥 ID: ${props.FIRE_NUMBER || props.FIRE_ID || 'N/A'}<br>
+            Status: ${fireStatus}<br>
+            Distance: ${getDist(lat, lon).toFixed(1)} km
+          `);
+        });
+      })
+      .catch(err => {
+        console.error("API/network error:", err);
+        document.getElementById("status").innerText = "Network/API request failed.";
+      });
+  }
+
+  // Function to map fire status to color
+  function getStatusColor(status) {
+    switch (status) {
+      case 'OUT': return 'green';
+      case 'ACTIVE': return 'red';
+      case 'BEING HELD': return 'orange';
+      default: return 'blue'; // For unknown statuses
+    }
+  }
+
+  function getDist(lat2, lon2) {
+    const toRad = x => x * Math.PI / 180;
+    const R = 6371;
+    const dLat = toRad(lat2 - userLat), dLon = toRad(lon2 - userLon);
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(userLat)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  }
+
+  function showError(e) {
+    const msg = {1: "Permission denied", 2: "Position unavailable", 3: "Timeout"}[e.code] || "Unknown";
+    document.getElementById("status").innerText = `Geolocation error: ${msg}`;
+  }
+</script>
+
+</body>
+</html>
