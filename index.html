@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>BC Wildfire Map v15</title>
+  <title>BC Wildfire Map (With Circle Markers)</title>
   <meta charset="utf‑8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
@@ -61,7 +61,7 @@
         console.log("Layer metadata:", meta);
         if (meta.fields && meta.fields.some(f => f.name === "FIRE_STATUS")) {
           hasStatusField = true;
-          console.log("FIRE_STATUS is available.");
+          console.log("FIRE_STATUS field is available.");
         } else {
           console.warn("FIRE_STATUS is not present in this layer.");
         }
@@ -123,23 +123,24 @@
         }
         document.getElementById("status").innerText = `⚠️ ${feats.length} fire(s) matched.`;
         feats.forEach(f => {
-          // Ensure geometry exists
+          // Check if geometry exists and is valid
           if (!f.geometry || !f.geometry.x || !f.geometry.y) {
             console.warn("Invalid geometry detected for fire:", f);
-            return;  // Skip this feature if geometry is invalid
+            return;  // Skip invalid geometry
           }
+
           const lat = f.geometry.y, lon = f.geometry.x;
           const props = f.attributes || {};
 
-          // Log specific parts of the feature for debugging
+          // Log relevant feature data
           console.log("Fire Location:", lat, lon);
           console.log("Fire Status:", props.FIRE_STATUS || 'Unknown');
-          
+
           // Set fire status to color mapping
           const fireStatus = props.FIRE_STATUS || 'Unknown';
           const color = getStatusColor(fireStatus);
 
-          // Create a circle marker for the fire location
+          // Create circle markers for valid fires
           L.circleMarker([lat, lon], {
             radius: 8,
             fillColor: color,
@@ -160,7 +161,6 @@
       });
   }
 
-  // Function to map fire status to color
   function getStatusColor(status) {
     switch (status) {
       case 'OUT': return 'green';
