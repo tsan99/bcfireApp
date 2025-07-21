@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>BC Wildfire Map - TS</title>
+  <title>BC Wildfire Map - 002</title>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
@@ -42,7 +42,10 @@
 
 <script>
   const pointAPI = 'https://delivery.maps.gov.bc.ca/arcgis/rest/services/whse/bcgw_pub_whse_land_and_natural_resource/MapServer/20';
-  proj4.defs("EPSG:102190", "+proj=aea +lat_1=50 +lat_2=58.5 +lat_0=45 +lon_0=-126 +x_0=1000000 +y_0=0 +datum=NAD83 +units=m +no_defs");
+
+  // Define BC Albers projection (EPSG:102190)
+  proj4.defs("EPSG:102190", "+proj=aea +lat_1=50 +lat_2=58.5 +lat_0=45 +lon_0=-126 " +
+    "+x_0=1000000 +y_0=0 +datum=NAD83 +units=m +no_defs");
 
   let map, layerGroup, userMarker;
   let refreshTimer, userLat, userLon;
@@ -104,14 +107,18 @@
     const radiusMeters = getRadiusMeters();
     const radiusKm = radiusMeters / 1000;
 
+    // Convert WGS84 user location to BC Albers (EPSG:102190)
+    const [searchX, searchY] = proj4("EPSG:4326", "EPSG:102190", [userLon, userLat]);
+
     const params = new URLSearchParams({
       where: "1=1",
-      geometry: `${userLon},${userLat}`,
+      geometry: `${searchX},${searchY}`,
       geometryType: "esriGeometryPoint",
       spatialRel: "esriSpatialRelIntersects",
       distance: radiusMeters,
-      inSR: "4326",
+      inSR: "102190",
       outFields: "*",
+      outSR: "4326", // get back geometries in WGS84 for display
       f: "json"
     });
 
@@ -140,8 +147,10 @@
           let lat, lon;
 
           if (g.x != null && g.y != null) {
-            [lon, lat] = proj4("EPSG:102190", "EPSG:4326", [g.x, g.y]);
+            // Point geometry
+            [lon, lat] = [g.x, g.y];
           } else if (g.rings && Array.isArray(g.rings)) {
+            // Polygon geometry: use centroid of first ring
             const ring = g.rings[0];
             const total = ring.reduce((sum, [x, y]) => {
               sum.x += x;
@@ -151,7 +160,7 @@
             const count = ring.length;
             const avgX = total.x / count;
             const avgY = total.y / count;
-            [lon, lat] = proj4("EPSG:102190", "EPSG:4326", [avgX, avgY]);
+            [lon, lat] = [avgX, avgY];
           } else {
             console.warn("Skipping fire with unrecognized geometry:", g);
             return;
@@ -202,7 +211,7 @@
     document.getElementById("status").innerText = `Geolocation error: ${msg}`;
   }
 
-  updateRadiusLabel(); // Initialize radius label on load
+  updateRadiusLabel(); // Update label on load
 </script>
 
 </body>
