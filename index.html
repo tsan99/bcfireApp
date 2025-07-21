@@ -1,15 +1,12 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>BC Wildfire Map with Fire Status and Hover Info</title>
+  <title>BC Wildfire Map (Live Fire Points)</title>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-  <!-- Leaflet CSS & JS -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-
-  <!-- Proj4 for projection conversion -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.8.0/proj4.js"></script>
 
   <style>
@@ -23,8 +20,6 @@
       font-size: 14px;
       box-shadow: 0 0 15px rgba(0,0,0,0.2);
       border-radius: 5px;
-      line-height: 18px;
-      color: #555;
       position: absolute;
       bottom: 30px;
       left: 10px;
@@ -37,8 +32,6 @@
       margin-right: 8px;
       opacity: 0.7;
     }
-
-    /* Info box styles */
     #infoBox {
       position: absolute;
       top: 10px;
@@ -50,7 +43,7 @@
       box-shadow: 0 0 12px rgba(0,0,0,0.3);
       font-size: 14px;
       color: #222;
-      pointer-events: none; /* so it doesn't block map events */
+      pointer-events: none;
       z-index: 1100;
       display: none;
     }
@@ -58,14 +51,14 @@
 </head>
 <body>
 
-<h2>🔥 BC Wildfire Map (with Fire Status and Hover Info)</h2>
+<h2>🔥 BC Wildfire Map (Live Fire Points)</h2>
 
 <div class="controls">
   <button onclick="getLocation()">📍 Use My Location</button><br>
 
   <label>Or manually enter coordinates:</label>
-  Latitude: <input type="number" id="lat" step="any" value="53.9171" placeholder="49.xxx">
-  Longitude: <input type="number" id="lon" step="any" value="-122.7497" placeholder="-123.xxx">
+  Latitude: <input type="number" id="lat" step="any" value="53.9171">
+  Longitude: <input type="number" id="lon" step="any" value="-122.7497">
   <button onclick="manualCheck()">Check Fires Near Me</button>
 
   <label>Search Radius: <span id="radiusLabel">500</span> km</label>
@@ -77,39 +70,34 @@
 <p id="status">Status: Waiting…</p>
 <div id="map"></div>
 
-<div class="legend" id="legend">
+<div class="legend">
   <strong>Fire Status Legend</strong><br>
   <i style="background:#d73027"></i> Out of Control<br>
   <i style="background:#fc8d59"></i> Being Held<br>
   <i style="background:#fee08b"></i> Under Control<br>
   <i style="background:#91bfdb"></i> Out<br>
-  <i style="background:#cccccc"></i> Unknown/Other
+  <i style="background:#cccccc"></i> Unknown
 </div>
 
-<!-- Info box for hover details -->
 <div id="infoBox"></div>
 
 <script>
-  const pointAPI = 'https://delivery.maps.gov.bc.ca/arcgis/rest/services/whse/bcgw_pub_whse_land_and_natural_resource/MapServer/20';
+  const pointAPI = 'https://delivery.maps.gov.bc.ca/arcgis/rest/services/WHSE_LAND_AND_NATURAL_RESOURCE/WHSE_WILDFIRE_CURRENT/MapServer/0';
 
-  // BC Albers projection (EPSG:102190)
-  proj4.defs("EPSG:102190", "+proj=aea +lat_1=50 +lat_2=58.5 +lat_0=45 +lon_0=-126 " +
-    "+x_0=1000000 +y_0=0 +datum=NAD83 +units=m +no_defs");
+  // Define projection
+  proj4.defs("EPSG:102190", "+proj=aea +lat_1=50 +lat_2=58.5 +lat_0=45 +lon_0=-126 +x_0=1000000 +y_0=0 +datum=NAD83 +units=m +no_defs");
 
   let map, layerGroup, userMarker;
   let refreshTimer, userLat, userLon;
 
-  // Map fire statuses to colors
   const statusColors = {
-    "OUT": "#91bfdb",              // Out
-    "UNDER CONTROL": "#fee08b",   // Under Control
-    "BEING HELD": "#fc8d59",      // Being Held
-    "OUT OF CONTROL": "#d73027",  // Out of Control
+    "OUT OF CONTROL": "#d73027",
+    "BEING HELD": "#fc8d59",
+    "UNDER CONTROL": "#fee08b",
+    "OUT": "#91bfdb"
   };
 
   const infoBox = document.getElementById('infoBox');
-
-  initMap();
 
   function initMap(lat = 53.9171, lon = -122.7497) {
     map = L.map('map').setView([lat, lon], 7);
@@ -137,8 +125,7 @@
   }
 
   function updateRadiusLabel() {
-    const radius = document.getElementById("radiusSlider").value;
-    document.getElementById("radiusLabel").textContent = radius;
+    document.getElementById("radiusLabel").textContent = document.getElementById("radiusSlider").value;
   }
 
   function getRadiusMeters() {
@@ -156,7 +143,7 @@
     queryFires();
     if (document.getElementById("autoRefresh").checked) {
       clearInterval(refreshTimer);
-      refreshTimer = setInterval(() => queryFires(), 60000);
+      refreshTimer = setInterval(queryFires, 60000);
     } else {
       clearInterval(refreshTimer);
     }
@@ -166,8 +153,8 @@
     infoBox.innerHTML = `
       <strong>🔥 Fire Info</strong><br>
       <b>ID:</b> ${props.FIRE_NUMBER || 'N/A'}<br>
-      <b>Status:</b> ${props.FIRE_STATUS || 'Unknown'}<br>
-      <b>Size:</b> ${props.SIZ_HA || 'N/A'} ha
+      <b>Status:</b> ${props.FIRE_STATUS_DESC || 'Unknown'}<br>
+      <b>Size:</b> ${props.EST_HA || 'N/A'} ha
     `;
     infoBox.style.display = 'block';
   }
@@ -179,99 +166,61 @@
 
   function queryFires() {
     const radiusMeters = getRadiusMeters();
-    const radiusKm = radiusMeters / 1000;
-
-    // Convert WGS84 user location to BC Albers (EPSG:102190)
     const [searchX, searchY] = proj4("EPSG:4326", "EPSG:102190", [userLon, userLat]);
 
     const params = new URLSearchParams({
-      where: "1=1",
       geometry: `${searchX},${searchY}`,
       geometryType: "esriGeometryPoint",
       spatialRel: "esriSpatialRelIntersects",
       distance: radiusMeters,
       inSR: "102190",
       outFields: "*",
-      outSR: "4326", // output geometries in lat/lon
+      outSR: "4326",
       f: "json"
     });
 
     fetch(pointAPI + "/query?" + params)
       .then(res => res.json())
       .then(resp => {
-        if (resp.error) {
-          document.getElementById("status").innerText = "API error: " + resp.error.message;
-          return;
-        }
-
         const fires = resp.features || [];
+
         if (fires.length === 0) {
-          document.getElementById("status").innerText = `✅ No nearby fires within ${radiusKm} km.`;
-          hideFireInfo();
+          document.getElementById("status").innerText = `✅ No nearby fires within ${radiusMeters / 1000} km.`;
           return;
         }
 
-        document.getElementById("status").innerText = `⚠️ ${fires.length} fire(s) detected within ${radiusKm} km`;
+        document.getElementById("status").innerText = `⚠️ ${fires.length} fire(s) detected`;
 
         layerGroup.clearLayers();
+        if (userMarker) userMarker.addTo(layerGroup);
 
         const bounds = [];
 
         fires.forEach(f => {
           const g = f.geometry;
           const props = f.attributes || {};
-          const statusRaw = (props.FIRE_STATUS || "").toUpperCase().trim();
-          const statusColor = statusColors[statusRaw] || "#cccccc";
+          const status = (props.FIRE_STATUS_DESC || "").toUpperCase();
+          const color = statusColors[status] || "#cccccc";
 
-          if (g.rings && Array.isArray(g.rings)) {
-            const latlngs = g.rings.map(ring =>
-              ring.map(coord => [coord[1], coord[0]])
-            );
-
-            const poly = L.polygon(latlngs, {
-              color: statusColor,
-              fillColor: statusColor,
-              weight: 2,
-              fillOpacity: 0.5
-            }).addTo(layerGroup);
-
-            poly.bindPopup(`
-              🔥 Fire ID: ${props.FIRE_NUMBER || 'N/A'}<br>
-              Status: ${props.FIRE_STATUS || 'Unknown'}<br>
-              Size: ${props.SIZ_HA || 'N/A'} ha
-            `);
-
-            // Show info on hover
-            poly.on('mouseover', () => showFireInfo(props));
-            poly.on('mouseout', () => hideFireInfo());
-
-            bounds.push(...latlngs.flat());
-          } else if (g.x != null && g.y != null) {
-            const lat = g.y;
-            const lon = g.x;
-
-            const circle = L.circleMarker([lat, lon], {
-              radius: 10,
-              fillColor: statusColor,
-              color: "#444",
+          if (g.x != null && g.y != null) {
+            const marker = L.circleMarker([g.y, g.x], {
+              radius: 8,
+              fillColor: color,
+              color: "#333",
               weight: 1,
-              opacity: 1,
               fillOpacity: 0.8
             }).addTo(layerGroup);
 
-            circle.bindPopup(`
+            marker.bindPopup(`
               🔥 Fire ID: ${props.FIRE_NUMBER || 'N/A'}<br>
-              Status: ${props.FIRE_STATUS || 'Unknown'}<br>
-              Size: ${props.SIZ_HA || 'N/A'} ha
+              Status: ${props.FIRE_STATUS_DESC || 'Unknown'}<br>
+              Size: ${props.EST_HA || 'N/A'} ha
             `);
 
-            // Show info on hover
-            circle.on('mouseover', () => showFireInfo(props));
-            circle.on('mouseout', () => hideFireInfo());
+            marker.on("mouseover", () => showFireInfo(props));
+            marker.on("mouseout", hideFireInfo);
 
-            bounds.push([lat, lon]);
-          } else {
-            console.warn("Skipping fire with invalid geometry:", g);
+            bounds.push([g.y, g.x]);
           }
         });
 
@@ -280,9 +229,8 @@
         }
       })
       .catch(err => {
-        console.error("API fetch error:", err);
+        console.error("Fetch error:", err);
         document.getElementById("status").innerText = "❌ Failed to load fire data.";
-        hideFireInfo();
       });
   }
 
@@ -295,7 +243,8 @@
     document.getElementById("status").innerText = `Geolocation error: ${msg}`;
   }
 
-  updateRadiusLabel(); // Initialize radius label
+  initMap();
+  updateRadiusLabel();
 </script>
 
 </body>
