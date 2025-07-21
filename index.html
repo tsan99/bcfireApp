@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>BC Wildfire Map (Fixed Projection)</title>
+  <title>BC Wildfire Map</title>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
@@ -9,7 +9,7 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
-  <!-- Proj4.js for projection conversion -->
+  <!-- Proj4 for projection conversion -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.8.0/proj4.js"></script>
 
   <style>
@@ -38,7 +38,7 @@
 <script>
   const pointAPI = 'https://delivery.maps.gov.bc.ca/arcgis/rest/services/whse/bcgw_pub_whse_land_and_natural_resource/MapServer/20';
 
-  // Define the BC Albers projection (EPSG:102190)
+  // Define BC Albers (EPSG:102190)
   proj4.defs("EPSG:102190", "+proj=aea +lat_1=50 +lat_2=58.5 +lat_0=45 +lon_0=-126 " +
     "+x_0=1000000 +y_0=0 +datum=NAD83 +units=m +no_defs");
 
@@ -49,7 +49,9 @@
 
   function initMap(lat = 53.7, lon = -127.6) {
     map = L.map('map').setView([lat, lon], 6);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OSM' }).addTo(map);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; OSM contributors'
+    }).addTo(map);
     layerGroup = L.layerGroup().addTo(map);
   }
 
@@ -121,13 +123,28 @@
           const g = f.geometry;
           const props = f.attributes || {};
 
-          if (!g || g.x == null || g.y == null) {
-            console.warn("Skipping fire with invalid geometry:", g);
+          let lat, lon;
+
+          if (g.x != null && g.y != null) {
+            // Point
+            [lon, lat] = proj4("EPSG:102190", "EPSG:4326", [g.x, g.y]);
+          } else if (g.rings && Array.isArray(g.rings)) {
+            // Polygon (use centroid of first ring)
+            const ring = g.rings[0];
+            const total = ring.reduce((sum, [x, y]) => {
+              sum.x += x;
+              sum.y += y;
+              return sum;
+            }, { x: 0, y: 0 });
+            const count = ring.length;
+            const avgX = total.x / count;
+            const avgY = total.y / count;
+            [lon, lat] = proj4("EPSG:102190", "EPSG:4326", [avgX, avgY]);
+          } else {
+            console.warn("Skipping fire with unrecognized geometry:", g);
             return;
           }
 
-          // Convert from BC Albers (EPSG:102190) to WGS84 (EPSG:4326)
-          const [lon, lat] = proj4("EPSG:102190", "EPSG:4326", [g.x, g.y]);
           bounds.push([lat, lon]);
 
           L.circleMarker([lat, lon], {
