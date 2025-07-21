@@ -1,13 +1,20 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>BC Wildfire Map</title>
-  <meta charset="utf‑8" />
+  <title>BC Wildfire Map (Fixed Projection)</title>
+  <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <!-- Leaflet CSS & JS -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <!-- Proj4.js for projection conversion -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.8.0/proj4.js"></script>
+
   <style>
-    #map { height: 500px; margin-top: 15px; }
     body { font-family: Arial, sans-serif; padding: 10px; }
+    #map { height: 500px; margin-top: 15px; }
     .controls { margin-bottom: 10px; }
     label, input { display: block; margin: 4px 0; }
   </style>
@@ -18,20 +25,22 @@
 
 <div class="controls">
   <button onclick="getLocation()">📍 Use My Location</button><br>
-  <label>Or manually enter:</label>
+  <label>Or manually enter coordinates:</label>
   Latitude: <input type="number" id="lat" step="any" placeholder="49.xxx">
   Longitude: <input type="number" id="lon" step="any" placeholder="-123.xxx">
   <button onclick="manualCheck()">Check Fires Near Me</button>
-
   <label><input type="checkbox" id="autoRefresh"> Auto-refresh every 60s</label>
 </div>
 
 <p id="status">Status: Waiting…</p>
 <div id="map"></div>
 
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
   const pointAPI = 'https://delivery.maps.gov.bc.ca/arcgis/rest/services/whse/bcgw_pub_whse_land_and_natural_resource/MapServer/20';
+
+  // Define the BC Albers projection (EPSG:102190)
+  proj4.defs("EPSG:102190", "+proj=aea +lat_1=50 +lat_2=58.5 +lat_0=45 +lon_0=-126 " +
+    "+x_0=1000000 +y_0=0 +datum=NAD83 +units=m +no_defs");
 
   let map, layerGroup, userMarker;
   let refreshTimer, userLat, userLon;
@@ -45,7 +54,10 @@
   }
 
   function getLocation() {
-    navigator.geolocation?.getCurrentPosition(p => checkLoc(p.coords.latitude, p.coords.longitude), showError);
+    navigator.geolocation?.getCurrentPosition(
+      pos => checkLoc(pos.coords.latitude, pos.coords.longitude),
+      showError
+    );
   }
 
   function manualCheck() {
@@ -59,7 +71,8 @@
   }
 
   function checkLoc(lat, lon) {
-    userLat = lat; userLon = lon;
+    userLat = lat;
+    userLon = lon;
     map.setView([lat, lon], 10);
     layerGroup.clearLayers();
     if (userMarker) map.removeLayer(userMarker);
@@ -89,7 +102,6 @@
     fetch(pointAPI + "/query?" + params)
       .then(res => res.json())
       .then(resp => {
-        console.log("Response:", resp);
         if (resp.error) {
           document.getElementById("status").innerText = "API error: " + resp.error.message;
           return;
@@ -103,34 +115,41 @@
 
         document.getElementById("status").innerText = `⚠️ ${fires.length} fire(s) detected within 10 km`;
 
+        const bounds = [];
+
         fires.forEach(f => {
           const g = f.geometry;
           const props = f.attributes || {};
 
-          if (!g || typeof g.x !== "number" || typeof g.y !== "number") {
-            console.warn("Invalid geometry detected:", g);
+          if (!g || g.x == null || g.y == null) {
+            console.warn("Skipping fire with invalid geometry:", g);
             return;
           }
 
-          const fireLat = g.y;
-          const fireLon = g.x;
+          // Convert from BC Albers (EPSG:102190) to WGS84 (EPSG:4326)
+          const [lon, lat] = proj4("EPSG:102190", "EPSG:4326", [g.x, g.y]);
+          bounds.push([lat, lon]);
 
-          L.circleMarker([fireLat, fireLon], {
-            radius: 8,
+          L.circleMarker([lat, lon], {
+            radius: 10,
             fillColor: "red",
-            color: "darkred",
+            color: "#800000",
             weight: 2,
             opacity: 1,
-            fillOpacity: 0.6
+            fillOpacity: 0.7
           }).addTo(layerGroup).bindPopup(`
             🔥 Fire ID: ${props.FIRE_NUMBER || 'N/A'}<br>
-            Distance: ${getDist(fireLat, fireLon).toFixed(1)} km
+            Distance: ${getDist(lat, lon).toFixed(1)} km
           `);
         });
+
+        if (bounds.length > 0) {
+          map.fitBounds(bounds, { padding: [20, 20] });
+        }
       })
       .catch(err => {
-        console.error("API error:", err);
-        document.getElementById("status").innerText = "❌ Failed to fetch fire data.";
+        console.error("API fetch error:", err);
+        document.getElementById("status").innerText = "❌ Failed to load fire data.";
       });
   }
 
