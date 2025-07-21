@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>BC Wildfire Map (With Circle Markers)</title>
+  <title>BC Wildfire Map</title>
   <meta charset="utf‑8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
@@ -9,29 +9,21 @@
     #map { height: 500px; margin-top: 15px; }
     body { font-family: Arial, sans-serif; padding: 10px; }
     .controls { margin-bottom: 10px; }
-    label, input, select { display: block; margin: 4px 0; }
+    label, input { display: block; margin: 4px 0; }
   </style>
 </head>
 <body>
 
-<h2>🔥 BC Wildfire Map (Circle Markers)</h2>
+<h2>🔥 BC Wildfire Map</h2>
 
 <div class="controls">
   <button onclick="getLocation()">📍 Use My Location</button><br>
-  <label>Or manually:</label>
-  Lat: <input type="number" id="lat" step="any" placeholder="49.xxx">
-  Lon: <input type="number" id="lon" step="any" placeholder="-123.xxx">
-  <button onclick="manualCheck()">Check Coordinates</button>
+  <label>Or manually enter:</label>
+  Latitude: <input type="number" id="lat" step="any" placeholder="49.xxx">
+  Longitude: <input type="number" id="lon" step="any" placeholder="-123.xxx">
+  <button onclick="manualCheck()">Check Fires Near Me</button>
 
-  <label>Status Filter:</label>
-  <select id="statusFilter">
-    <option value="">All</option>
-    <option value="OUT">OUT</option>
-    <option value="ACTIVE">ACTIVE</option>
-    <option value="BEING HELD">BEING HELD</option>
-  </select>
-
-  <label><input type="checkbox" id="autoRefresh"> Auto‑refresh every 60 s</label>
+  <label><input type="checkbox" id="autoRefresh"> Auto-refresh every 60s</label>
 </div>
 
 <p id="status">Status: Waiting…</p>
@@ -41,32 +33,15 @@
 <script>
   const pointAPI = 'https://delivery.maps.gov.bc.ca/arcgis/rest/services/whse/bcgw_pub_whse_land_and_natural_resource/MapServer/20';
 
-  let hasStatusField = false;
   let map, layerGroup, userMarker;
   let refreshTimer, userLat, userLon;
 
   initMap();
-  checkLayerMetadata();
 
   function initMap(lat = 53.7, lon = -127.6) {
     map = L.map('map').setView([lat, lon], 6);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OSM' }).addTo(map);
     layerGroup = L.layerGroup().addTo(map);
-  }
-
-  function checkLayerMetadata() {
-    fetch(pointAPI + "?f=json")
-      .then(res => res.json())
-      .then(meta => {
-        console.log("Layer metadata:", meta);
-        if (meta.fields && meta.fields.some(f => f.name === "FIRE_STATUS")) {
-          hasStatusField = true;
-          console.log("FIRE_STATUS field is available.");
-        } else {
-          console.warn("FIRE_STATUS is not present in this layer.");
-        }
-      })
-      .catch(err => console.error("Metadata fetch failed:", err));
   }
 
   function getLocation() {
@@ -76,8 +51,11 @@
   function manualCheck() {
     const lat = parseFloat(document.getElementById('lat').value);
     const lon = parseFloat(document.getElementById('lon').value);
-    if (!isNaN(lat) && !isNaN(lon)) checkLoc(lat, lon);
-    else alert("Enter valid coordinates.");
+    if (!isNaN(lat) && !isNaN(lon)) {
+      checkLoc(lat, lon);
+    } else {
+      alert("Please enter valid coordinates.");
+    }
   }
 
   function checkLoc(lat, lon) {
@@ -86,23 +64,23 @@
     layerGroup.clearLayers();
     if (userMarker) map.removeLayer(userMarker);
     userMarker = L.marker([lat, lon]).addTo(layerGroup).bindPopup("📍 You").openPopup();
-    document.getElementById("status").innerText = "Querying fires…";
+    document.getElementById("status").innerText = "Querying nearby fires…";
     queryFires();
     if (document.getElementById("autoRefresh").checked) {
       clearInterval(refreshTimer);
       refreshTimer = setInterval(() => queryFires(), 60000);
-    } else clearInterval(refreshTimer);
+    } else {
+      clearInterval(refreshTimer);
+    }
   }
 
   function queryFires() {
-    const statusVal = document.getElementById("statusFilter").value;
-    const where = hasStatusField && statusVal ? `FIRE_STATUS='${statusVal}'` : "1=1";
     const params = new URLSearchParams({
-      where,
+      where: "1=1",
       geometry: `${userLon},${userLat}`,
       geometryType: "esriGeometryPoint",
       spatialRel: "esriSpatialRelIntersects",
-      distance: 10000,
+      distance: 10000, // meters (10 km)
       inSR: "4326",
       outFields: "*",
       f: "json"
@@ -111,75 +89,68 @@
     fetch(pointAPI + "/query?" + params)
       .then(res => res.json())
       .then(resp => {
-        console.log("Query response:", resp);
+        console.log("Response:", resp);
         if (resp.error) {
           document.getElementById("status").innerText = "API error: " + resp.error.message;
           return;
         }
-        const feats = resp.features || [];
-        if (!feats.length) {
-          document.getElementById("status").innerText = "✅ No fires found.";
+
+        const fires = resp.features || [];
+        if (fires.length === 0) {
+          document.getElementById("status").innerText = "✅ No nearby fires found.";
           return;
         }
-        document.getElementById("status").innerText = `⚠️ ${feats.length} fire(s) matched.`;
-        feats.forEach(f => {
-          // Check if geometry exists and is valid
-          if (!f.geometry || !f.geometry.x || !f.geometry.y) {
-            console.warn("Invalid geometry detected for fire:", f);
-            return;  // Skip invalid geometry
-          }
 
-          const lat = f.geometry.y, lon = f.geometry.x;
+        document.getElementById("status").innerText = `⚠️ ${fires.length} fire(s) detected within 10 km`;
+
+        fires.forEach(f => {
+          const g = f.geometry;
           const props = f.attributes || {};
 
-          // Log relevant feature data
-          console.log("Fire Location:", lat, lon);
-          console.log("Fire Status:", props.FIRE_STATUS || 'Unknown');
+          if (!g || typeof g.x !== "number" || typeof g.y !== "number") {
+            console.warn("Invalid geometry detected:", g);
+            return;
+          }
 
-          // Set fire status to color mapping
-          const fireStatus = props.FIRE_STATUS || 'Unknown';
-          const color = getStatusColor(fireStatus);
+          const fireLat = g.y;
+          const fireLon = g.x;
 
-          // Create circle markers for valid fires
-          L.circleMarker([lat, lon], {
+          L.circleMarker([fireLat, fireLon], {
             radius: 8,
-            fillColor: color,
-            color: color,
+            fillColor: "red",
+            color: "darkred",
             weight: 2,
             opacity: 1,
             fillOpacity: 0.6
           }).addTo(layerGroup).bindPopup(`
-            🔥 ID: ${props.FIRE_NUMBER || props.FIRE_ID || 'N/A'}<br>
-            Status: ${fireStatus}<br>
-            Distance: ${getDist(lat, lon).toFixed(1)} km
+            🔥 Fire ID: ${props.FIRE_NUMBER || 'N/A'}<br>
+            Distance: ${getDist(fireLat, fireLon).toFixed(1)} km
           `);
         });
       })
       .catch(err => {
-        console.error("API/network error:", err);
-        document.getElementById("status").innerText = "Network/API request failed.";
+        console.error("API error:", err);
+        document.getElementById("status").innerText = "❌ Failed to fetch fire data.";
       });
   }
 
-  function getStatusColor(status) {
-    switch (status) {
-      case 'OUT': return 'green';
-      case 'ACTIVE': return 'red';
-      case 'BEING HELD': return 'orange';
-      default: return 'blue'; // For unknown statuses
-    }
-  }
-
   function getDist(lat2, lon2) {
-    const toRad = x => x * Math.PI / 180;
-    const R = 6371;
-    const dLat = toRad(lat2 - userLat), dLon = toRad(lon2 - userLon);
-    const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(userLat)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+    const toRad = deg => deg * Math.PI / 180;
+    const R = 6371; // Earth radius in km
+    const dLat = toRad(lat2 - userLat);
+    const dLon = toRad(lon2 - userLon);
+    const a = Math.sin(dLat / 2) ** 2 +
+              Math.cos(toRad(userLat)) * Math.cos(toRad(lat2)) *
+              Math.sin(dLon / 2) ** 2;
     return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   }
 
   function showError(e) {
-    const msg = {1: "Permission denied", 2: "Position unavailable", 3: "Timeout"}[e.code] || "Unknown";
+    const msg = {
+      1: "Permission denied",
+      2: "Position unavailable",
+      3: "Timeout"
+    }[e.code] || "Unknown error";
     document.getElementById("status").innerText = `Geolocation error: ${msg}`;
   }
 </script>
