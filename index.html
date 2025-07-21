@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>BC Wildfire Map</title>
+  <title>BC Wildfire Map - TS</title>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
@@ -25,10 +25,15 @@
 
 <div class="controls">
   <button onclick="getLocation()">📍 Use My Location</button><br>
+
   <label>Or manually enter coordinates:</label>
   Latitude: <input type="number" id="lat" step="any" placeholder="49.xxx">
   Longitude: <input type="number" id="lon" step="any" placeholder="-123.xxx">
   <button onclick="manualCheck()">Check Fires Near Me</button>
+
+  <label>Search Radius: <span id="radiusLabel">500</span> km</label>
+  <input type="range" id="radiusSlider" min="100" max="1000" step="100" value="500" oninput="updateRadiusLabel()">
+
   <label><input type="checkbox" id="autoRefresh"> Auto-refresh every 60s</label>
 </div>
 
@@ -37,10 +42,7 @@
 
 <script>
   const pointAPI = 'https://delivery.maps.gov.bc.ca/arcgis/rest/services/whse/bcgw_pub_whse_land_and_natural_resource/MapServer/20';
-
-  // Define BC Albers (EPSG:102190)
-  proj4.defs("EPSG:102190", "+proj=aea +lat_1=50 +lat_2=58.5 +lat_0=45 +lon_0=-126 " +
-    "+x_0=1000000 +y_0=0 +datum=NAD83 +units=m +no_defs");
+  proj4.defs("EPSG:102190", "+proj=aea +lat_1=50 +lat_2=58.5 +lat_0=45 +lon_0=-126 +x_0=1000000 +y_0=0 +datum=NAD83 +units=m +no_defs");
 
   let map, layerGroup, userMarker;
   let refreshTimer, userLat, userLon;
@@ -72,10 +74,19 @@
     }
   }
 
+  function updateRadiusLabel() {
+    const radius = document.getElementById("radiusSlider").value;
+    document.getElementById("radiusLabel").textContent = radius;
+  }
+
+  function getRadiusMeters() {
+    return parseInt(document.getElementById("radiusSlider").value, 10) * 1000;
+  }
+
   function checkLoc(lat, lon) {
     userLat = lat;
     userLon = lon;
-    map.setView([lat, lon], 10);
+    map.setView([lat, lon], 7);
     layerGroup.clearLayers();
     if (userMarker) map.removeLayer(userMarker);
     userMarker = L.marker([lat, lon]).addTo(layerGroup).bindPopup("📍 You").openPopup();
@@ -90,12 +101,15 @@
   }
 
   function queryFires() {
+    const radiusMeters = getRadiusMeters();
+    const radiusKm = radiusMeters / 1000;
+
     const params = new URLSearchParams({
       where: "1=1",
       geometry: `${userLon},${userLat}`,
       geometryType: "esriGeometryPoint",
       spatialRel: "esriSpatialRelIntersects",
-      distance: 10000, // meters (10 km)
+      distance: radiusMeters,
       inSR: "4326",
       outFields: "*",
       f: "json"
@@ -111,11 +125,11 @@
 
         const fires = resp.features || [];
         if (fires.length === 0) {
-          document.getElementById("status").innerText = "✅ No nearby fires found.";
+          document.getElementById("status").innerText = `✅ No nearby fires within ${radiusKm} km.`;
           return;
         }
 
-        document.getElementById("status").innerText = `⚠️ ${fires.length} fire(s) detected within 10 km`;
+        document.getElementById("status").innerText = `⚠️ ${fires.length} fire(s) detected within ${radiusKm} km`;
 
         const bounds = [];
 
@@ -126,10 +140,8 @@
           let lat, lon;
 
           if (g.x != null && g.y != null) {
-            // Point
             [lon, lat] = proj4("EPSG:102190", "EPSG:4326", [g.x, g.y]);
           } else if (g.rings && Array.isArray(g.rings)) {
-            // Polygon (use centroid of first ring)
             const ring = g.rings[0];
             const total = ring.reduce((sum, [x, y]) => {
               sum.x += x;
@@ -172,7 +184,7 @@
 
   function getDist(lat2, lon2) {
     const toRad = deg => deg * Math.PI / 180;
-    const R = 6371; // Earth radius in km
+    const R = 6371;
     const dLat = toRad(lat2 - userLat);
     const dLon = toRad(lon2 - userLon);
     const a = Math.sin(dLat / 2) ** 2 +
@@ -189,6 +201,8 @@
     }[e.code] || "Unknown error";
     document.getElementById("status").innerText = `Geolocation error: ${msg}`;
   }
+
+  updateRadiusLabel(); // Initialize radius label on load
 </script>
 
 </body>
